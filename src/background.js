@@ -9,7 +9,7 @@ browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (changeInfo.status === 'complete' && tab.url) {
         console.log('onComplete');
         // Check if the URL matches the patterns specified in the manifest
-        if (tab.url.match(/.*(linkedin|facebook|instagram)\.com.*/)) {
+        if (tab.url.match(/.*(linkedin|facebook|instagram|tumblr)\.com.*/)) {
             // Inject content.js as a module
             console.log('executeScript: ' + tab.url);
             browser.scripting.executeScript({

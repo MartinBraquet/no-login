@@ -400,6 +400,23 @@ async function removeInstagramLogin() {
     // log("Removed instagram login banner");
 }
 
+async function removeTumblrLogin() {
+    if (!window.location.href.includes('tumblr.com')) return;
+    let wanted = await readLocalStorage('tumblrWanted');
+    if (!wanted) return;
+    
+    // check url; login will not be requested on tumblrs configured not to do that, so it is unnecessary to do anything furthes
+    if (!/* regex matching http://www.tumblr.com/username/other things*/ ) {
+        return;
+    } else {
+        log("Removed tumblr center login dialog from " /* node info, see other similar functions() */);
+        // remove glass-container node
+        // remove bottom login banner
+        
+        incrementSkipCounter(); // doublecheck what this is for
+    }
+}
+
 const checkIfActiveTab = async () => {
     return new Promise((resolve, reject) => {
         browser.runtime.sendMessage({message: "is_active_tab"}, function (response) {
@@ -415,5 +432,6 @@ export async function checkForLogins() {
         await removeLinkedinLogin();
         await removeFacebookLogin();
         await removeInstagramLogin();
+        await removeTumblrLogin();
     }
 }

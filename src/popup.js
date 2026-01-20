@@ -51,5 +51,6 @@ document.addEventListener('DOMContentLoaded', function () {
     setElementAndListener("facebookWanted", "checked");
     setElementAndListener("instagramWanted", "checked");
     setElementAndListener("linkedinWanted", "checked");
+    setElementAndListener("tumblrWanted", "checked");
     document.getElementById("restoreDefaults").addEventListener('click', restoreDefaults);
 });
