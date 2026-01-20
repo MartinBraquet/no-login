@@ -406,7 +406,7 @@ async function removeTumblrLogin() {
     if (!wanted) return;
     
     // check url; login will not be requested on tumblrs configured not to do that, so it is unnecessary to do anything furthes
-    if (!/* regex matching http://www.tumblr.com/username/other things*/ ) {
+    if (false) {
         return;
     } else {
         log("Removed tumblr center login dialog from " /* node info, see other similar functions() */);
