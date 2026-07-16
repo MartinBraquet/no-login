@@ -1,6 +1,6 @@
 {
   "name": "No Login",
-  "version": "1.17",
+  "version": "1.18",
   "manifest_version": 3,
   "description": "Access social media websites without logging in",
   "permissions": [
