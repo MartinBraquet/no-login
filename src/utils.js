@@ -4,5 +4,6 @@ export const defaultOptions = {
     instagramWanted: true,
     linkedinWanted: true,
     tumblrWanted: false,
+    twitterWanted: true,
 }
 // export const local = browser.storage.local;

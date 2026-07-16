@@ -400,6 +400,42 @@ async function removeInstagramLogin() {
     // log("Removed instagram login banner");
 }
 
+async function removeTwitterLogin() {
+    if (!window.location.href.includes('x.com') && !window.location.href.includes('twitter.com')) return;
+    let wanted = await readLocalStorage('twitterWanted');
+    if (!wanted) return;
+
+    // X freezes each photo/video with the "inert" attribute and lays a "View media"
+    // link over it that opens the login gate when clicked. Remove that overlay and
+    // un-freeze the media so its own controls (video player, gallery "Next" button)
+    // work again, then strip the login-gated links on the media itself so clicking it
+    // no longer opens the popup.
+    for (let inert of document.querySelectorAll('[inert]')) {
+        let parent = inert.parentElement;
+        if (!parent) continue;
+        let overlay = parent.querySelector(':scope > a[href*="/photo/"], :scope > a[href*="/video/"]');
+        if (!overlay) continue;
+        log("Disabled twitter media login gate: " + getAttributes(overlay));
+        overlay.remove();
+        inert.removeAttribute('inert');
+        for (let link of inert.querySelectorAll('a[href*="/photo/"], a[href*="/video/"]')) {
+            link.removeAttribute('href');
+        }
+        incrementSkipCounter();
+    }
+
+    // Bottom "Don't miss what's happening" sign-up banner
+    let banners = document.querySelectorAll('.fixed.bottom-0');
+    for (let banner of banners) {
+        if (banner.querySelector('[href*="/i/jf/onboarding/web"]')) {
+            log("Removed twitter bottom login banner: " + getAttributes(banner));
+            banner.remove();
+            incrementSkipCounter();
+            break;
+        }
+    }
+}
+
 async function removeTumblrLogin() {
     if (!window.location.href.includes('tumblr.com')) return;
     let wanted = await readLocalStorage('tumblrWanted');
@@ -432,6 +468,7 @@ export async function checkForLogins() {
         await removeLinkedinLogin();
         await removeFacebookLogin();
         await removeInstagramLogin();
+        await removeTwitterLogin();
         await removeTumblrLogin();
     }
 }
