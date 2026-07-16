@@ -11,7 +11,9 @@
   "host_permissions": [
     "*://*.linkedin.com/*",
     "*://*.facebook.com/*",
-    "*://*.instagram.com/*"
+    "*://*.instagram.com/*",
+    "*://*.x.com/*",
+    "*://*.twitter.com/*"
   ],
   "action": {
     "default_popup": "src/popup.html",
@@ -29,7 +31,9 @@
       "matches": [
         "*://*.linkedin.com/*",
         "*://*.facebook.com/*",
-        "*://*.instagram.com/*"
+        "*://*.instagram.com/*",
+        "*://*.x.com/*",
+        "*://*.twitter.com/*"
       ],
       "js": [
         "dist/content.bundle.js"

@@ -15,6 +15,7 @@ Currently supported websites:
 - LinkedIn
 - Instagram
 - Facebook
+- X (Twitter)
 
 
 Note that the add-on is in its early phase; please submit a review for any issue or feature request.
