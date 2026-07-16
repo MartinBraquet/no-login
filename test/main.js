@@ -16,7 +16,12 @@ describe("First Tests", function () {
         });
         global.window = dom.window;
         global.document = dom.window.document;
-        global.navigator = dom.window.navigator;
+        // Node >= 21 exposes a getter-only `navigator` global, so it can't be assigned directly.
+        Object.defineProperty(global, 'navigator', {
+            value: dom.window.navigator,
+            configurable: true,
+            writable: true,
+        });
         global.localStorage = dom.window.localStorage;
         global.sessionStorage = dom.window.sessionStorage;
         global.browser = {
