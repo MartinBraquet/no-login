@@ -266,6 +266,28 @@ function closestTo(element, to) {
     return parent;
 }
 
+const LANDMARK_SELECTOR = '[role="main"], [role="banner"], [role="navigation"], [role="feed"], article, main, nav';
+
+function hasContent(element) {
+    return (element.textContent || '').trim().length > 0 || element.querySelector(LANDMARK_SELECTOR);
+}
+
+// Climb from a login dialog to the root of the overlay layer that wraps it: the highest ancestor whose
+// siblings are all empty (backdrops, spacers). Stops as soon as removing the next ancestor would also
+// remove page content, so a login dialog nested inside the app's React mount root never takes the whole
+// page down with it (see issue #9).
+export function getOverlayRoot(element) {
+    let current = element;
+    while (current.parentElement && current.parentElement !== document.body) {
+        let parent = current.parentElement;
+        if (parent.querySelector(LANDMARK_SELECTOR) && !current.querySelector(LANDMARK_SELECTOR)) break;
+        let siblings = Array.from(parent.children).filter(child => child !== current);
+        if (siblings.some(hasContent)) break;
+        current = parent;
+    }
+    return current;
+}
+
 function clickButton(close_button) {
     log("Clicking facebook center dialog close button: " + getAttributes(close_button));
     log(close_button.outerHTML)
@@ -284,13 +306,18 @@ function checkAllButtons() {
     }
 }
 
+function getFacebookLoginDialog() {
+    // Facebook may open several dialogs at once (e.g. the post itself on /posts/ urls, the cookie consent),
+    // so pick the one that actually holds the login form instead of the first dialog on the page.
+    let form = document.getElementById('login_popup_cta_form');
+    if (!form) return null;
+    return form.closest('[role="dialog"]');
+}
+
 function removeFacebookCenterDialogButton() {
     checkAllButtons();
-    let dialog = document.querySelector('[role="dialog"]');
+    let dialog = getFacebookLoginDialog();
     if (!dialog) return;
-    let form = dialog.querySelector('[id="login_popup_cta_form"]');
-    if (!form) return;
-    // if (!dialog.getAttribute('aria-label')) return;
     let close_buttons = dialog.querySelectorAll('[role="button"]');
     for (let close_button of close_buttons) {
         if (close_button.querySelector('[data-visualcompletion="css-img"]')) {
@@ -319,7 +346,7 @@ async function removeFacebookLogin() {
     // Log in center dialog without close button
     let form = document.getElementById('login_popup_cta_form');
     if (form) {
-        let element = closestTo(form, document.body);
+        let element = getOverlayRoot(form.closest('[role="dialog"]') || form);
         log("Removed facebook center login dialog login_popup_cta_form: " + getAttributes(element));
         element.remove();
         incrementSkipCounter();
@@ -333,18 +360,94 @@ async function removeFacebookLogin() {
     }
 }
 
+export function getInstagramRedirectTarget(href) {
+    let next;
+    try {
+        next = new URL(href).searchParams.get('next');
+    } catch (e) {
+        return null;
+    }
+    if (!next || !next.startsWith('/')) return null;
+    // Drop the tracking query string that instagram appends to the "next" url
+    let path = next.split('?')[0].replace(/\/+$/, '');
+    if (!path) return null;
+    return "https://www.instagram.com" + path + "/";
+}
+
+const REDIRECT_COOLDOWN_MS = 10000;
+const REDIRECT_TIMESTAMP_KEY = 'no-login-last-redirect';
+
+// Instagram sometimes sends the browser straight back to the login page after we leave it. Without a
+// cooldown the add-on and the website would bounce the tab back and forth forever (see issue #4); with it
+// the user lands on the login page at most once every few seconds and can act on it themselves.
+function redirectedRecently() {
+    let last = 0;
+    try {
+        last = parseInt(window.sessionStorage.getItem(REDIRECT_TIMESTAMP_KEY)) || 0;
+    } catch (e) {
+        // sessionStorage can be unavailable (e.g. storage disabled); fall back to always redirecting
+    }
+    let elapsed = Date.now() - last;
+    if (elapsed < REDIRECT_COOLDOWN_MS) {
+        logOnce("Skipping instagram login redirect: already redirected " + elapsed + " ms ago");
+        return true;
+    }
+    return false;
+}
+
+function markRedirected() {
+    try {
+        window.sessionStorage.setItem(REDIRECT_TIMESTAMP_KEY, String(Date.now()));
+    } catch (e) {
+    }
+}
+
+// Clicking a post in a profile grid or in the "more posts" strip asks instagram's single-page app to open it in a
+// modal, which logged-out visitors are not allowed to do: the app shows the login dialog instead (which the add-on then
+// closes, so nothing seems to happen). The post page itself renders fine when loaded directly, so turn a plain left
+// click on a post link into a regular same-tab navigation. Modified clicks keep their browser behaviour (new tab, ...).
+export function isInstagramPostLink(anchor) {
+    if (!anchor || !anchor.getAttribute) return false;
+    let href = anchor.getAttribute('href') || '';
+    return /^(https?:\/\/(www\.)?instagram\.com)?\/([^/?#]+\/)?(p|reel|reels)\/[^/?#]+/.test(href);
+}
+
+export function onInstagramClick(event, navigate = url => window.location.assign(url)) {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    if (event.defaultPrevented) return;
+    let anchor = event.target.closest ? event.target.closest('a[href]') : null;
+    if (!isInstagramPostLink(anchor)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    log("Opening instagram post in the same tab instead of the login-gated modal: " + anchor.href);
+    navigate(anchor.href);
+}
+
+let instagramClickHandlerInstalled = false;
+
+function installInstagramClickHandler() {
+    if (instagramClickHandlerInstalled) return;
+    instagramClickHandlerInstalled = true;
+    // Capture phase, so the handler runs before the single-page app's own click handling.
+    document.addEventListener('click', onInstagramClick, true);
+}
+
 async function removeInstagramLogin() {
     if (!window.location.href.includes('instagram.com')) return;
     let wanted = await readLocalStorage('instagramWanted');
     if (!wanted) return;
 
+    installInstagramClickHandler();
+
     if (window.location.href.includes('login/?next')) {
-        let fragments = window.location.href.split('%2F');
-        //(1,-1) removes the 1st part of the url including the login redirect, and the last part with the tracking tags
-        let url = "https://instagram.com/" + fragments.slice(1, -1).join('/');
-        log("Redirecting to " + url);
-        clearInterval(intervalId.value);
-        window.location.replace(url);
+        let url = getInstagramRedirectTarget(window.location.href);
+        if (url && !redirectedRecently()) {
+            markRedirected();
+            log("Redirecting to " + url);
+            clearInterval(intervalId.value);
+            window.location.replace(url);
+        }
+        return;
     }
 
     let buttons = document.getElementsByTagName('button');
@@ -372,7 +475,7 @@ async function removeInstagramLogin() {
     // Log in center dialog without close button
     let form = document.getElementById('loginForm');
     if (form) {
-        let element = closestTo(form, document.body);
+        let element = getOverlayRoot(form.closest('[role="dialog"]') || form);
         log("Removed instagram center login dialog loginForm: " + getAttributes(element));
         element.remove();
         incrementSkipCounter();
@@ -400,10 +503,141 @@ async function removeInstagramLogin() {
     // log("Removed instagram login banner");
 }
 
+const LIGHTBOX_ID = 'no-login-addon-lightbox';
+
+export function isTwitterMediaImage(element) {
+    return !!(element && element.tagName === 'IMG' && /pbs\.twimg\.com\/media\//.test(element.src || ''));
+}
+
+// X's CDN only serves the original size as jpg (the page itself uses webp for the resized variants).
+export function getTwitterOriginalImageUrl(src) {
+    let url = new URL(src);
+    url.searchParams.set('format', 'jpg');
+    url.searchParams.set('name', 'orig');
+    return url.toString();
+}
+
+export function getTwitterLargeImageUrl(src) {
+    let url = new URL(src);
+    url.searchParams.set('name', 'large');
+    return url.toString();
+}
+
+export function closeTwitterLightbox() {
+    let lightbox = document.getElementById(LIGHTBOX_ID);
+    if (lightbox) lightbox.remove();
+}
+
+export function openTwitterLightbox(src, fallbackSrc) {
+    closeTwitterLightbox();
+    let lightbox = document.createElement('div');
+    lightbox.id = LIGHTBOX_ID;
+    lightbox.setAttribute('role', 'dialog');
+    lightbox.setAttribute('aria-label', 'Image');
+    lightbox.style.cssText = 'position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;' +
+        'background:rgba(0,0,0,0.9);cursor:zoom-out;margin:0;padding:0;';
+    let image = document.createElement('img');
+    image.src = src;
+    image.alt = '';
+    if (fallbackSrc && fallbackSrc !== src) {
+        image.addEventListener('error', () => {
+            log("Original image unavailable, falling back to " + fallbackSrc);
+            image.src = fallbackSrc;
+        }, {once: true});
+    }
+    image.style.cssText = 'max-width:100vw;max-height:100vh;object-fit:contain;display:block;';
+    let close = document.createElement('button');
+    close.type = 'button';
+    close.textContent = '\u00d7';
+    close.setAttribute('aria-label', 'Close');
+    close.style.cssText = 'position:absolute;top:12px;right:16px;background:none;border:none;color:#fff;font-size:36px;line-height:1;cursor:pointer;';
+    lightbox.appendChild(image);
+    lightbox.appendChild(close);
+    document.body.appendChild(lightbox);
+    return lightbox;
+}
+
+// X (logged out) opens a "Don't miss what's happening" login card whenever a photo is clicked, since the media viewer
+// needs an account. Show the full-size image in a simple lightbox of our own instead.
+export function onTwitterClick(event, navigate = url => window.location.assign(url)) {
+    let target = event.target;
+    if (!target || !target.closest) return;
+    if (target.closest('#' + LIGHTBOX_ID)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        closeTwitterLightbox();
+        return;
+    }
+    if (event.type === 'click' && (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)) return;
+    if (isTwitterMediaImage(target) && target.closest('article')) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (event.type !== 'click') return;
+        let src = getTwitterOriginalImageUrl(target.src);
+        log("Opening twitter image in a lightbox instead of the login card: " + src);
+        openTwitterLightbox(src, getTwitterLargeImageUrl(target.src));
+        incrementSkipCounter();
+        return;
+    }
+    // Clicking the body of a post would open it in place, which logged-out visitors are not allowed to do (the page
+    // shows the login card instead). Open the post's own page, like a plain link would.
+    if (target.closest('a[href], button, [role="button"], video, audio, input, textarea')) return;
+    let post = target.closest('[data-href*="/status/"]');
+    if (!post) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (event.type !== 'click') return;
+    if (window.getSelection && String(window.getSelection()).length > 0) return;
+    let url = new URL(post.getAttribute('data-href'), window.location.href).toString();
+    if (url === window.location.href) return;
+    log("Opening twitter post page instead of the login card: " + url);
+    navigate(url);
+}
+
+export function onTwitterKeydown(event) {
+    if (event.key === 'Escape' && document.getElementById(LIGHTBOX_ID)) {
+        event.stopImmediatePropagation();
+        closeTwitterLightbox();
+    }
+}
+
+let twitterClickHandlerInstalled = false;
+
+function installTwitterClickHandler() {
+    if (twitterClickHandlerInstalled) return;
+    twitterClickHandlerInstalled = true;
+    // Capture phase on the document runs before the page's own handlers on the media elements.
+    for (let type of ['pointerdown', 'mousedown', 'click']) {
+        document.addEventListener(type, onTwitterClick, true);
+    }
+    document.addEventListener('keydown', onTwitterKeydown, true);
+}
+
+// The login card X shows after clicking on media, "Show more", etc. It has its own close button, which also
+// restores the page's scrolling, so prefer clicking it over removing the card.
+function closeTwitterEngagementModal() {
+    let modal = document.querySelector('[data-engagement-modal]');
+    if (!modal) return;
+    let close_button = Array.from(modal.querySelectorAll('button')).find(button => button.querySelector('svg[data-icon="icon-close-md"]'))
+        || modal.querySelector('button');
+    if (close_button) {
+        log("Closing twitter login card: " + getAttributes(close_button));
+        close_button.click();
+    } else {
+        log("Removing twitter login card: " + getAttributes(modal));
+        modal.remove();
+        document.body.style.overflow = '';
+    }
+    incrementSkipCounter();
+}
+
 async function removeTwitterLogin() {
     if (!window.location.href.includes('x.com') && !window.location.href.includes('twitter.com')) return;
     let wanted = await readLocalStorage('twitterWanted');
     if (!wanted) return;
+
+    installTwitterClickHandler();
+    closeTwitterEngagementModal();
 
     // X freezes each photo/video with the "inert" attribute and lays a "View media"
     // link over it that opens the login gate when clicked. Remove that overlay and

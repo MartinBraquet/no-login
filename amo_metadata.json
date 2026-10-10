@@ -1,7 +1,7 @@
 {
   "version": {
     "release_notes": {
-      "en-US": "Add support for X / Twitter"
+      "en-US": "Fix Facebook post pages going blank after the login popup was closed (#9). Instagram: open posts in the same tab when clicked from a profile (the login-gated modal was not usable), and stop the login redirect from looping (#4). X: clicking a photo now shows it full size instead of the login card, and the login card is closed automatically."
     }
   }
 }
